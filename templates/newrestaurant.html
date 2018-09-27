@@ -1,0 +1,10 @@
+<html>
+    <body>
+        <h1> New Restaurant </h1>
+        <form action="{{url_for('newRestaurant', restaurant=restaurant )}}" method = 'POST'>
+            <p>Name:</p>
+            <input type='text' size='30' name='name' placeholder = 'New restaurant name'>
+            <input type='submit' value='Create'>
+        </form>
+    </body>
+</html>
