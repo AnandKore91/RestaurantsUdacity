@@ -6,7 +6,7 @@ from sqlalchemy.pool import SingletonThreadPool
 
 app = Flask(__name__)
 
-engine = create_engine('sqlite:///restaurantmenu.db',poolclass=SingletonThreadPool)
+engine = create_engine('sqlite:///restaurantmenu.db?check_same_thread=False',poolclass=SingletonThreadPool)
 Base.metadata.bind = engine
 
 DBSession = sessionmaker(bind=engine)
