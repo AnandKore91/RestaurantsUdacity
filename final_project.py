@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from database_setup import Base, Restaurant, MenuItem
+from database_setup import Base, Restaurant, MenuItem, User
 from sqlalchemy.pool import SingletonThreadPool
 
 from flask import session as login_session
@@ -21,7 +21,7 @@ APPLICATION_NAME = "Restaurant Menu Application"
 
 app = Flask(__name__)
 
-engine = create_engine('sqlite:///restaurantmenu.db?check_same_thread=False',poolclass=SingletonThreadPool)
+engine = create_engine('sqlite:///restaurantmenuwithusers.db?check_same_thread=False',poolclass=SingletonThreadPool)
 Base.metadata.bind = engine
 
 DBSession = sessionmaker(bind=engine)
@@ -71,13 +71,9 @@ def gconnect():
 
     try:
         # Upgrade the authorization code into a credentials object
-        print("Valid state")
         oauth_flow = flow_from_clientsecrets('client_secrets.json', scope='')
-        print(oauth_flow)
-        print("Valid oauth_flow")
         oauth_flow.redirect_uri = 'postmessage'
         credentials = oauth_flow.step2_exchange(code)
-        print("Got credentials")
     except FlowExchangeError:
         response = make_response(
             json.dumps('Failed to upgrade the authorization code.'), 401)
@@ -135,6 +131,11 @@ def gconnect():
     login_session['picture'] = data['picture']
     login_session['email'] = data['email']
 
+    user_id = getUserID(login_session['email'])
+    if not user_id:
+        user_id = createUser(login_session)
+    login_session['user_id'] = user_id
+
     output = ''
     output += '<h1>Welcome, '
     output += login_session['username']
@@ -182,7 +183,10 @@ def gdisconnect():
 @app.route('/restaurants/')
 def restaurants():
     restaurant_list = session.query(Restaurant).all()
-    return render_template('restaurants_list.html',restaurants=restaurant_list)
+    if 'username' not in login_session:
+        return render_template('publicrestaurants.html',restaurants=restaurant_list)
+    else:
+        return render_template('restaurants_list.html',restaurants=restaurant_list)
 
 
 @app.route('/restaurants/new/', methods=['GET','POST'])
@@ -190,7 +194,7 @@ def newRestaurant():
     if 'username' not in login_session:
         return redirect('/login')
     if request.method == 'POST':
-        newResto = Restaurant(name=request.form['name'])
+        newResto = Restaurant(name=request.form['name'], user_id = login_session['user_id'])
         session.add(newResto)
         session.commit()
         flash("New restaurant created!")
@@ -221,6 +225,8 @@ def deleteRestaurant(restaurant_id):
     itemToDelete = session.query(Restaurant).filter_by(id=restaurant_id).one()
     if 'username' not in login_session:
         return redirect('/login')
+    if itemToDelete.user_id != login_session['user_id']:
+        return "<script> function myFunction(){ alert('You are not authorized to delete this restaurant. Please create your own restaurant in order to delete.'); }</script><body onload='myFunction()''>"
     if request.method == 'POST':
         session.delete(itemToDelete)
         session.commit()
@@ -234,8 +240,12 @@ def deleteRestaurant(restaurant_id):
 @app.route('/restaurants/<int:restaurant_id>/')
 def restaurantMenu(restaurant_id):
     restaurant = session.query(Restaurant).filter_by(id=restaurant_id).one()
-    items = session.query(MenuItem).filter_by(restaurant_id=restaurant.id)
-    return render_template('menu.html',restaurant=restaurant, items=items)
+    creator = getUserInfo(restaurant.user_id)
+    items = session.query(MenuItem).filter_by(restaurant_id = restaurant_id).all()
+    if 'username' in login_session:
+        return render_template('publicmenu.html', items=items, restaurant = restaurant, creator = creator)
+    else:
+        return render_template('menu.html',restaurant=restaurant, items=items, creator = creator)
 
 # Task 1: Create route for newMenuItem function here
 
@@ -244,9 +254,10 @@ def restaurantMenu(restaurant_id):
 def newMenuItem(restaurant_id):
     if 'username' not in login_session:
         return redirect('/login')
+    restaurant = session.query(Restaurant).filter_by(id=restaurant_id).one()
     if request.method == 'POST':
         #name price description course
-        newItem = MenuItem(name=request.form['name'],description=request.form['description'],price=request.form['price'],course=request.form['course'], restaurant_id=restaurant_id)
+        newItem = MenuItem(name=request.form['name'],description=request.form['description'],price=request.form['price'],course=request.form['course'], restaurant_id=restaurant_id, user_id = restaurant.user_id)
         session.add(newItem)
         session.commit()
         flash("New menu item created!")
@@ -288,6 +299,24 @@ def deleteMenuItem(restaurant_id, menu_id):
     else:
         return render_template('deletemenuitem.html', item = itemToDelete)
 
+
+def getUserID(email):
+    try:
+        user = session.query(User).filter_by(email = email).one()
+        return user.id
+    except:
+        return None
+
+def getUserInfo(user_id):
+    user = session.query(User).filter_by(id = user_id).one()
+    return user
+
+def createUser(login_session):
+    newUser = User(name=login_session['username'], email=login_session['email'], picture=login_session['picture'])
+    session.add(newUser)
+    session.commit()
+    user = session.query(User).filter_by(email = login_session['email']).one()
+    return user.id
 
 if __name__ == '__main__':
     app.secret_key = 'super_secret_key'
